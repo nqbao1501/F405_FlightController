@@ -125,6 +125,7 @@ float ScaledControllerOutput[5];
 #define CRSF_DMA_BUF_SIZE 128
 uint8_t crsf_dma_buf[CRSF_DMA_BUF_SIZE];
 uint16_t old_pos = 0;
+float  yaw_heading_reference;
 
 /* USER CODE END PV */
 
@@ -380,9 +381,15 @@ int main(void)
 
 
 
-		  float roll_out = PID_Double_Calculation(&PID_Controller_Roll, (ScaledControllerOutput[CH_ROLL] - 1500), roll, rollDot, dt);
-		  float pitch_out = PID_Double_Calculation(&PID_Controller_Pitch,(ScaledControllerOutput[CH_PITCH] - 1500), pitch, pitchDot, dt);
-		  float yaw_out = PID_Yaw_Angle_Calculation(&PID_Controller_Yaw, yaw_target, yaw, yawDot, dt);
+		  float roll_out = PID_Double_Calculation(&PID_Controller_Roll, (ScaledControllerOutput[CH_ROLL]- 1500.0f) * 0.4f, roll, rollDot, dt);
+		  float pitch_out = PID_Double_Calculation(&PID_Controller_Pitch,(ScaledControllerOutput[CH_PITCH] -1500.0f) * - 0.4f, pitch, pitchDot, dt);
+		  if (ScaledControllerOutput[CH_YAW] < 1485 || ScaledControllerOutput[CH_YAW] > 1515){
+			  yaw_heading_reference = yaw;
+			  float yaw_out = PID_Yaw_Rate_Calculation(&PID_Controller_Yaw_Rate, (ScaledControllerOutput[CH_YAW] - 1500.0f) * 0.4f , yawDot, dt);
+		  }
+		  else{
+			  float yaw_out = PID_Yaw_Angle_Calculation(&PID_Controller_Yaw, yaw_heading_reference , yaw, yawDot, dt);
+		  }
 
 
 		  // Clamp PID outputs to safe range
