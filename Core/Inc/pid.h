@@ -1,6 +1,8 @@
 #ifndef PID_H
 #define PID_H
+#include <stdbool.h>
 
+extern bool PID_outer_loop_activation_flag;
 typedef struct {
     float Kp;
     float Ki;

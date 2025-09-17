@@ -53,23 +53,25 @@ float PID_Compute(PID_Controller *pid, float target, float measured, float measu
 
 float PID_Double_Calculation(Double_PID_Controller *axis, float target_angle, float measured_angle, float measured_rate, float dt){
 	/*Double PID outer loop calculation */
-	axis->outer_loop.target_value = target_angle;
-	axis->outer_loop.measured_value = measured_angle;
+	if (PID_outer_loop_activation_flag){
+		axis->outer_loop.target_value = target_angle;
+		axis->outer_loop.measured_value = measured_angle;
 
-	axis->outer_loop.error = axis->outer_loop.target_value - axis->outer_loop.measured_value;
-	axis->outer_loop.error_sum += axis->outer_loop.error * dt;
+		axis->outer_loop.error = axis->outer_loop.target_value - axis->outer_loop.measured_value;
+		axis->outer_loop.error_sum += axis->outer_loop.error * dt;
 
-	if (axis->outer_loop.error_sum > axis->outer_loop.integral_limit) axis->outer_loop.error_sum = axis->outer_loop.integral_limit;
-	else if (axis->outer_loop.error_sum < -axis->outer_loop.integral_limit) axis->outer_loop.error_sum = -axis->outer_loop.integral_limit;
+		if (axis->outer_loop.error_sum > axis->outer_loop.integral_limit) axis->outer_loop.error_sum = axis->outer_loop.integral_limit;
+		else if (axis->outer_loop.error_sum < -axis->outer_loop.integral_limit) axis->outer_loop.error_sum = -axis->outer_loop.integral_limit;
 
-	axis->outer_loop.error_deriv = -measured_rate;
+		axis->outer_loop.error_deriv = -measured_rate;
 
-	axis->outer_loop.output = axis->outer_loop.Kd * axis->outer_loop.error +
-							  axis->outer_loop.Ki * axis->outer_loop.error_sum +
-							  axis->outer_loop.Kp * axis->outer_loop.error_deriv;
+		axis->outer_loop.output = axis->outer_loop.Kp * axis->outer_loop.error +
+								  axis->outer_loop.Ki * axis->outer_loop.error_sum +
+								  axis->outer_loop.Kd * axis->outer_loop.error_deriv;
 
-	if (axis->outer_loop.output > axis->outer_loop.output_limit) axis->outer_loop.output = axis->outer_loop.output_limit;
-	else if (axis->outer_loop.output < -axis->outer_loop.output_limit) axis->outer_loop.output = -axis->outer_loop.output_limit;
+		if (axis->outer_loop.output > axis->outer_loop.output_limit) axis->outer_loop.output = axis->outer_loop.output_limit;
+		else if (axis->outer_loop.output < -axis->outer_loop.output_limit) axis->outer_loop.output = -axis->outer_loop.output_limit;
+	}
 
 	/*Double PID inner loop calculation*/
 	axis->inner_loop.target_value = axis->outer_loop.output;
@@ -83,9 +85,9 @@ float PID_Double_Calculation(Double_PID_Controller *axis, float target_angle, fl
 	axis->inner_loop.error_deriv = -(axis->inner_loop.measured_value - axis->inner_loop.measured_value_prev) / dt;
 	axis->inner_loop.measured_value_prev = axis->inner_loop.measured_value;
 
-	axis->inner_loop.output = axis->inner_loop.Kd * axis->inner_loop.error +
+	axis->inner_loop.output = axis->inner_loop.Kp * axis->inner_loop.error +
 			  	  	  	  	  axis->inner_loop.Ki * axis->inner_loop.error_sum +
-							  axis->inner_loop.Kp * axis->inner_loop.error_deriv;
+							  axis->inner_loop.Kd * axis->inner_loop.error_deriv;
 
 	return axis->inner_loop.output;
 }
@@ -107,9 +109,9 @@ float PID_Yaw_Angle_Calculation(PID_Controller *axis, float target_angle, float 
 
 	axis->error_deriv = -measured_rate;
 
-	axis->output = axis->Kd * axis->error +
+	axis->output = axis->Kp * axis->error +
   	  	  	  	   axis->Ki * axis->error_sum +
-				   axis->Kp * axis->error_deriv;
+				   axis->Kd * axis->error_deriv;
 
 	return axis->output;
 }
@@ -125,9 +127,9 @@ float PID_Yaw_Rate_Calculation(PID_Controller *axis, float target_rate, float me
 	axis->error_deriv = -(axis->measured_value - axis->measured_value_prev) / dt;
 	axis->measured_value_prev = axis->measured_value;
 
-	axis->output = axis->Kd * axis->error +
+	axis->output = axis->Kp * axis->error +
   	  	  	  	   axis->Ki * axis->error_sum +
-				   axis->Kp * axis->error_deriv;
+				   axis->Kd * axis->error_deriv;
 	return axis->output;
 }
 void PID_Reset(PID_Controller *pid)

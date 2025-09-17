@@ -1,6 +1,6 @@
 ../Core/Src/pid.c:3:6:PID_Init	32	static
 ../Core/Src/pid.c:23:7:PID_Compute	32	static
 ../Core/Src/pid.c:54:7:PID_Double_Calculation	32	static
-../Core/Src/pid.c:97:7:PID_Yaw_Angle_Calculation	32	static
-../Core/Src/pid.c:117:7:PID_Yaw_Rate_Calculation	24	static
-../Core/Src/pid.c:133:6:PID_Reset	16	static
+../Core/Src/pid.c:99:7:PID_Yaw_Angle_Calculation	32	static
+../Core/Src/pid.c:119:7:PID_Yaw_Rate_Calculation	24	static
+../Core/Src/pid.c:135:6:PID_Reset	16	static

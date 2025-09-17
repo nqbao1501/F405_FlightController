@@ -1,4 +1,5 @@
 #include "filter.h"
+
 void IIR_Filter_1D_Init(IIR_Filter_1D *f, float alpha, float beta){
     f->alpha = alpha;
     f->beta = beta;
