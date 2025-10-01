@@ -49,21 +49,24 @@
 #define PID_KP_PITCH_INNER		1.0f
 #define PID_KD_PITCH_INNER		0.0f
 #define PID_KI_PITCH_INNER		0.0f
-#define PID_KP_PITCH_OUTER		0.5f
-#define PID_KD_PITCH_OUTER		0.5f
+
+#define PID_KP_PITCH_OUTER		1.2f
+#define PID_KD_PITCH_OUTER		0.8f
 #define PID_KI_PITCH_OUTER		0.8f
 
-#define PID_KP_ROLL_INNER		1.0f
+#define PID_KP_ROLL_INNER		0.2f
 #define PID_KD_ROLL_INNER		0.0f
 #define PID_KI_ROLL_INNER		0.0f
-#define PID_KP_ROLL_OUTER		0.2f
-#define PID_KD_ROLL_OUTER		0.5f
-#define PID_KI_ROLL_OUTER		0.8f
 
-#define PID_KP_YAW				0.5f
+#define PID_KP_ROLL_OUTER		2.0f
+#define PID_KD_ROLL_OUTER		4.0f
+#define PID_KI_ROLL_OUTER		4.5f
+
+#define PID_KP_YAW				1.5f
 #define PID_KD_YAW				0.0f
 #define PID_KI_YAW				0.0f
-#define PID_KP_YAW_RATE			1.0f
+
+#define PID_KP_YAW_RATE			1.5f
 #define PID_KD_YAW_RATE			0.0f
 #define PID_KI_YAW_RATE			0.0f
 /* USER CODE END PD */
@@ -268,7 +271,9 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+
+
+	HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -392,15 +397,15 @@ int main(void)
 		  while (yaw < 0.0f)         yaw += 360.0f;
 
 		  global_counter++;
-		  PID_outer_loop_activation_flag = (global_counter % 1);
+		  PID_outer_loop_activation_flag = (global_counter % 4);
 
 
-		  roll_out = PID_Double_Calculation(&PID_Controller_Roll, (ScaledControllerOutput[CH_ROLL]- 1500.0f) * 0.2f, roll, rollDot, dt);
-		  pitch_out = PID_Double_Calculation(&PID_Controller_Pitch,(ScaledControllerOutput[CH_PITCH] -1500.0f) * -0.2f, pitch, pitchDot, dt);
+		  roll_out = PID_Double_Calculation(&PID_Controller_Roll, (ScaledControllerOutput[CH_ROLL]- 1500.0f) * 0.4f, roll, rollDot, dt);
+		  pitch_out = PID_Double_Calculation(&PID_Controller_Pitch,(ScaledControllerOutput[CH_PITCH] -1500.0f) * -0.4f, pitch, pitchDot, dt);
 
 		  if (ScaledControllerOutput[CH_YAW] < 1485 || ScaledControllerOutput[CH_YAW] > 1515){
 			  yaw_heading_reference = yaw;
-			  yaw_out = PID_Yaw_Rate_Calculation(&PID_Controller_Yaw_Rate, (ScaledControllerOutput[CH_YAW] - 1500.0f) * -0.2f , yawDot, dt);
+			  yaw_out = PID_Yaw_Rate_Calculation(&PID_Controller_Yaw_Rate, (ScaledControllerOutput[CH_YAW] - 1500.0f) * -0.4f , yawDot, dt);
 		  }
 		  else{
 			  yaw_out = PID_Yaw_Angle_Calculation(&PID_Controller_Yaw, yaw_heading_reference , yaw, yawDot, dt);
