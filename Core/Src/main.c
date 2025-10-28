@@ -429,8 +429,6 @@ int main(void)
 		  sprintf(USB_TX_Buffer, "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\r\n",
 		          roll_target, roll, 0.0f,
 		          pitch_target, pitch, 0.0f);
-
-
 		  CDC_Transmit_FS((uint8_t*)USB_TX_Buffer, strlen(USB_TX_Buffer));
 
 	  }
