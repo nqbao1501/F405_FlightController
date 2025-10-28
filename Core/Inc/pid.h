@@ -3,6 +3,8 @@
 #include <stdbool.h>
 
 extern bool PID_outer_loop_activation_flag;
+#define OUTER_DERIVATIVE_FILTER_ALPHA		0.6
+#define INNER_DERIVATIVE_FILTER_ALPHA		0.6
 typedef struct {
     float Kp;
     float Ki;
@@ -15,6 +17,7 @@ typedef struct {
     float error;
     float error_sum;
     float error_deriv;
+    float error_deriv_filtered;   // for derivative filtering (LPF)
 
     float output_limit;     // Max abs(output)
     float integral_limit;   // Max abs(integral term)

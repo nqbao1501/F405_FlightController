@@ -90,9 +90,9 @@ void MPU6000_Process_DMA(MPU6000 *dev) {
 
     dev->temp = ((float)raw_temp) / 340.0f + 36.53f;
 
-    dev->gyro[0] = (float)raw_gyro_x / GYRO_SCALE;
-    dev->gyro[1] = -(float)raw_gyro_y / GYRO_SCALE;
-    dev->gyro[2] = (float)raw_gyro_z / GYRO_SCALE;
+    dev->gyro[0] = -(float)raw_gyro_x / GYRO_SCALE;
+    dev->gyro[1] = (float)raw_gyro_y / GYRO_SCALE;
+    dev->gyro[2] = -(float)raw_gyro_z / GYRO_SCALE;
 
     if (dev->calibrated){
         for (uint8_t i = 0; i < 3; i++){

@@ -13,6 +13,7 @@ void PID_Init(PID_Controller *pid, float Kp, float Ki, float Kd, float output_li
     pid->error = 0.0f;
     pid->error_sum = 0.0f;
     pid->error_deriv = 0.0f;
+    pid->error_deriv_filtered = 0.0f;
 
     pid->output = 0.0f;
 
@@ -68,9 +69,14 @@ float PID_Double_Calculation(Double_PID_Controller *axis, float target_angle, fl
 		axis->outer_loop.output = axis->outer_loop.Kp * axis->outer_loop.error +
 								  axis->outer_loop.Ki * axis->outer_loop.error_sum +
 								  axis->outer_loop.Kd * axis->outer_loop.error_deriv;
+//		axis->outer_loop.error_deriv_filtered = (1 - OUTER_DERIVATIVE_FILTER_ALPHA)*axis->outer_loop.error_deriv_filtered + OUTER_DERIVATIVE_FILTER_ALPHA*axis->outer_loop.error_deriv;
+//		axis->outer_loop.output = axis->outer_loop.Kp * axis->outer_loop.error +
+//								  axis->outer_loop.Ki * axis->outer_loop.error_sum +
+//								  axis->outer_loop.Kd * axis->outer_loop.error_deriv_filtered;
 
-		if (axis->outer_loop.output > axis->outer_loop.output_limit) axis->outer_loop.output = axis->outer_loop.output_limit;
-		else if (axis->outer_loop.output < -axis->outer_loop.output_limit) axis->outer_loop.output = -axis->outer_loop.output_limit;
+
+	if (axis->outer_loop.output > axis->outer_loop.output_limit) axis->outer_loop.output = axis->outer_loop.output_limit;
+	else if (axis->outer_loop.output < -axis->outer_loop.output_limit) axis->outer_loop.output = -axis->outer_loop.output_limit;
 	}
 
 	/*Double PID inner loop calculation*/
@@ -83,11 +89,15 @@ float PID_Double_Calculation(Double_PID_Controller *axis, float target_angle, fl
 	else if (axis->inner_loop.error_sum < -axis->inner_loop.integral_limit) axis->inner_loop.error_sum = -axis->inner_loop.integral_limit;
 
 	axis->inner_loop.error_deriv = -(axis->inner_loop.measured_value - axis->inner_loop.measured_value_prev) / dt;
-	axis->inner_loop.measured_value_prev = axis->inner_loop.measured_value;
 
+	axis->inner_loop.measured_value_prev = axis->inner_loop.measured_value;
 	axis->inner_loop.output = axis->inner_loop.Kp * axis->inner_loop.error +
 			  	  	  	  	  axis->inner_loop.Ki * axis->inner_loop.error_sum +
 							  axis->inner_loop.Kd * axis->inner_loop.error_deriv;
+//	axis->inner_loop.error_deriv_filtered = (1 - INNER_DERIVATIVE_FILTER_ALPHA)*axis->inner_loop.error_deriv_filtered + INNER_DERIVATIVE_FILTER_ALPHA*axis->inner_loop.error_deriv;
+//	axis->inner_loop.output = axis->inner_loop.Kp * axis->inner_loop.error +
+//							  axis->inner_loop.Ki * axis->inner_loop.error_sum +
+//							  axis->inner_loop.Kd * axis->inner_loop.error_deriv_filtered;
 
 	return axis->inner_loop.output;
 }

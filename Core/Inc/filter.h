@@ -5,7 +5,7 @@
 
 //#define IIR_ACC_ALPHA	0.9391
 //#define IIR_ACC_BETA	0.0305
-#define IIR_GYR_ALPHA	0.6346
+#define IIR_GYR_ALPHA	0.6346 //Cutoff at 70hz
 #define IIR_GYR_BETA	0.1827
 #define COMP_ALPHA		0.95
 
