@@ -36,7 +36,12 @@ void CRSF_IdleHandler(void);
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+typedef enum{
+	SYSTEM_STATE_FLY_MODE = 0,
+	SYSTEM_STATE_DUMP_DATA_MODE
+}SystemState_t;
 
+extern volatile SystemState_t drone_system_state;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -57,6 +62,10 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define GYRO_CS_Pin GPIO_PIN_4
+#define GYRO_CS_GPIO_Port GPIOA
+#define FLASH_CS_Pin GPIO_PIN_3
+#define FLASH_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

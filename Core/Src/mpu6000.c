@@ -72,6 +72,31 @@ void MPU6000_Start_DMA(MPU6000 *dev) {
     }
 }
 
+void MPU6000_Read_Blocking(MPU6000 *dev, uint8_t *spi_rx_buffer) {
+    // 1. Prepare TX buffer: [register address, dummy bytes...]
+    dev->tx_buffer[0] = 0x3B | 0x80; // ACCEL_XOUT_H | Read bit (0x80)
+    for (int i = 1; i < 15; i++) {
+        dev->tx_buffer[i] = 0xFF; // dummy bytes for clocking out data
+    }
+
+    // 2. Pull CS low before starting transfer
+    HAL_GPIO_WritePin(MPU6000_CS_PORT, MPU6000_CS_PIN, GPIO_PIN_RESET);
+
+    // 3. Blocking SPI Transfer (Replaces DMA)
+    // The task will block (halt) here until the transfer of 15 bytes is complete.
+    if (HAL_SPI_TransmitReceive(dev->hspi,
+                                dev->tx_buffer,
+                                spi_rx_buffer,
+                                15,
+                                HAL_MAX_DELAY) != HAL_OK)
+    {
+        // Handle SPI error here (e.g., logging, infinite loop, or return)
+    }
+
+    // 4. Pull CS high after transfer is complete
+    HAL_GPIO_WritePin(MPU6000_CS_PORT, MPU6000_CS_PIN, GPIO_PIN_SET);
+}
+
 
 void MPU6000_Process_DMA(MPU6000 *dev) {
     int16_t raw_acc_x = (dev->dma_buffer[1] << 8) | dev->dma_buffer[2];
@@ -102,22 +127,42 @@ void MPU6000_Process_DMA(MPU6000 *dev) {
     }
 }
 
+void MPU6000_Process(MPU6000 *dev, uint8_t* spi_rx_buffer) {
+    int16_t raw_acc_x = (spi_rx_buffer[1] << 8) | spi_rx_buffer[2];
+    int16_t raw_acc_y = (spi_rx_buffer[3] << 8) | spi_rx_buffer[4];
+    int16_t raw_acc_z = (spi_rx_buffer[5] << 8) | spi_rx_buffer[6];
+
+    int16_t raw_temp  = (spi_rx_buffer[7] << 8) | spi_rx_buffer[8];
+
+    int16_t raw_gyro_x = (spi_rx_buffer[9] << 8) | spi_rx_buffer[10];
+    int16_t raw_gyro_y = (spi_rx_buffer[11] << 8) | spi_rx_buffer[12];
+    int16_t raw_gyro_z = (spi_rx_buffer[13] << 8) | spi_rx_buffer[14];
+
+    dev->acc[0] = (float)raw_acc_x / ACCEL_SCALE;
+    dev->acc[1] = -(float)raw_acc_y / ACCEL_SCALE;
+    dev->acc[2] = (float)raw_acc_z / ACCEL_SCALE;
+
+    dev->temp = ((float)raw_temp) / 340.0f + 36.53f;
+
+    dev->gyro[0] = -(float)raw_gyro_x / GYRO_SCALE;
+    dev->gyro[1] = (float)raw_gyro_y / GYRO_SCALE;
+    dev->gyro[2] = -(float)raw_gyro_z / GYRO_SCALE;
+
+}
+
 void MPU6000_Calibrate(MPU6000 *dev) {
-    const uint16_t samples = 3000;
+    const uint16_t samples = 1000;
     float acc_sum[3] = {0}, gyro_sum[3] = {0};
 
     dev->calibrated = false;
 
+    uint8_t spi_rx_buffer[8];
+
     for (uint16_t i = 0; i < samples; i++) {
         // Start a DMA read
-        dev->spi_transfer_done = false;
-        MPU6000_Start_DMA(dev);
-
-        // Wait until DMA completes
-        while (!dev->spi_transfer_done) { }
-
+        MPU6000_Read_Blocking(dev, spi_rx_buffer);
         // Process latest sample
-        MPU6000_Process_DMA(dev);
+        MPU6000_Process(dev, spi_rx_buffer);
 
         for (uint8_t axis = 0; axis < 3; axis++) {
             acc_sum[axis]  += dev->acc[axis];

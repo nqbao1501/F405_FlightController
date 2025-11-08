@@ -77,7 +77,10 @@ typedef struct{
 } MPU6000;
 
 void MPU6000_Start_DMA(MPU6000 *dev);
+void MPU6000_Read_Blocking(MPU6000 *dev, uint8_t *spi_rx_buffer);
 void MPU6000_Process_DMA(MPU6000 *dev);
+void MPU6000_Process(MPU6000 *dev, uint8_t* spi_rx_buffer);
+
 void MPU6000_Calibrate(MPU6000 *dev);
 uint16_t MPU6000_Read(MPU6000 *dev,uint8_t reg);
 void MPU6000_Write(MPU6000 *dev,uint8_t reg,uint8_t data);

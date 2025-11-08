@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "dma.h"
 #include "spi.h"
 #include "tim.h"
@@ -37,6 +38,9 @@
 #include "stm32f4xx.h"
 #include <stdbool.h>
 #include "usbd_cdc_if.h"
+#include "w25q256.h"
+#include "blackbox.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -82,6 +86,8 @@
 /* USER CODE BEGIN PV */
 extern UART_HandleTypeDef huart6;
 extern DMA_HandleTypeDef hdma_usart6_rx;
+
+
 float dt = 0.001f;
 float acc_x = 0.0f;
 float acc_y = 0.0f;
@@ -119,8 +125,6 @@ float roll_out;
 float pitch_out;
 float yaw_out;
 
-bool motor_armed;
-
 float m1 = 0;
 float m2 = 0;
 float m3 = 0;
@@ -135,13 +139,33 @@ float ScaledControllerOutput[5];
 #define CRSF_DMA_BUF_SIZE 128
 uint8_t crsf_dma_buf[CRSF_DMA_BUF_SIZE];
 uint16_t old_pos = 0;
+
+
 float  yaw_heading_reference = 0;
 uint32_t global_counter = 0;
+
 bool PID_outer_loop_activation_flag;
 
+volatile SystemState_t drone_system_state = SYSTEM_STATE_FLY_MODE;
 /* USB communication variables */
 char  USB_TX_Buffer[128];
+char USB_RX_Buffer [64];
 
+
+/*Flash communication variable */
+uint32_t id;
+uint8_t status;
+volatile bool flash_write_done_flag = true;
+volatile flash_packet blackbox_packet[8];
+volatile uint8_t blackbox_packet_index = 0;
+volatile bool blackbox_packet_ready_flag = false;
+uint8_t flash_buffer_rx[256];
+uint16_t page_number = 0;
+
+/*Battery level oitoring varilables */
+float battery_voltage;
+uint16_t battery_voltage_raw;
+bool adc_battery_done_flag = true;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -156,15 +180,37 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             mpu.state = 1; // request new transfer
             MPU6000_Start_DMA(&mpu);
         }
+        if (adc_battery_done_flag == true){
+        	adc_battery_done_flag = false;
+        	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&battery_voltage_raw, 1);
+        }
     }
 }
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    if (hadc->Instance == ADC1) {
+        adc_battery_done_flag = true;
+
+        float vref = 3.3f;
+        float divider = (10.0f + 1.0f) / 1.0f; // 10k/1k
+        float adc_raw = battery_voltage_raw;
+        battery_voltage = (adc_raw / 4095.0f) * vref * divider * 0.99386f;
+    }
+}
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
     if (hspi->Instance == SPI1) {
         HAL_GPIO_WritePin(MPU6000_CS_PORT, MPU6000_CS_PIN, GPIO_PIN_SET);
         mpu.state = 2; // DMA finished
         mpu.spi_transfer_done = true;
+    }
+}
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+{
+    if (hspi->Instance == SPI3) {
+        csHigh();
+        flash_write_done_flag = true;
     }
 }
 
@@ -298,6 +344,8 @@ int main(void)
   MX_TIM5_Init();
   MX_USART6_UART_Init();
   MX_USB_DEVICE_Init();
+  MX_SPI3_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   //IIR_Filter_3D_Init(&acc_filtered, IIR_ACC_ALPHA, IIR_ACC_BETA);
   IIR_Filter_3D_Init(&gyro_filtered, IIR_GYR_ALPHA, IIR_GYR_BETA);
@@ -308,16 +356,15 @@ int main(void)
   init_PIDs();
   MPU6000_Calibrate(&mpu);
 
+  //Fills arrays in
   Dshot_DMABuffer_init(DShot_DMABufferMotor1);
   Dshot_DMABuffer_init(DShot_DMABufferMotor2);
   Dshot_DMABuffer_init(DShot_DMABufferMotor3);
   Dshot_DMABuffer_init(DShot_DMABufferMotor4);
-
   Dshot_MemoryBuffer_init(DShot_MemoryBufferMotor1);
   Dshot_MemoryBuffer_init(DShot_MemoryBufferMotor2);
   Dshot_MemoryBuffer_init(DShot_MemoryBufferMotor3);
   Dshot_MemoryBuffer_init(DShot_MemoryBufferMotor4);
-
   Dshot_Calibrate(DShot_DMABufferMotor1);
   Dshot_Calibrate(DShot_DMABufferMotor2);
   Dshot_Calibrate(DShot_DMABufferMotor3);
@@ -328,7 +375,6 @@ int main(void)
   HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_3, DShot_DMABufferMotor2, DMA_BUFFER_LENGTH);
   HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_4, DShot_DMABufferMotor3, DMA_BUFFER_LENGTH);
   HAL_TIM_PWM_Start_DMA(&htim5, TIM_CHANNEL_3, DShot_DMABufferMotor4, DMA_BUFFER_LENGTH);
-  motor_armed = true;
 
   Dshot_PrepareFrame(0, DShot_MemoryBufferMotor1);
   Dshot_PrepareFrame(0, DShot_MemoryBufferMotor2);
@@ -340,97 +386,165 @@ int main(void)
   HAL_UART_Receive_DMA(&huart6, crsf_dma_buf, CRSF_DMA_BUF_SIZE);
   __HAL_UART_ENABLE_IT(&huart6, UART_IT_IDLE);  // enable IDLE interrupt
   HAL_TIM_Base_Start_IT(&htim2);
+
+  HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_SET);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&battery_voltage_raw, 1);
+  W25Q_Reset();
+  flash_write_done_flag = false;
+
+  Blackbox_EraseAll();
+  W25Q_Read(BLACKBOX_START_ADDR, 256, flash_buffer_rx);
+  for (int i = blackbox_packet_index; i < 8; i++) {
+      blackbox_packet[i].timestamp = 0;
+      blackbox_packet[i].battery_voltage = 0;
+      blackbox_packet[i].roll_target = 0;
+      blackbox_packet[i].pitch_target = 0;
+      blackbox_packet[i].yaw_target = 0;
+      blackbox_packet[i].roll = 0;
+      blackbox_packet[i].pitch = 0;
+      blackbox_packet[i].yaw = 0;
+  }
+  id = W25Q_ReadID();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if (ScaledControllerOutput[CH_ARM] < 1500){
-		  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor1);
-		  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor2);
-		  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor3);
-		  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor4);
+	  if (drone_system_state == SYSTEM_STATE_FLY_MODE){
+		  if (ScaledControllerOutput[CH_ARM] < 1500){
+			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor1);
+			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor2);
+			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor3);
+			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor4);
 
-	  }
-	  else{
-		  //0 <= m1, m2, m3, m4 <= 1999
-		  Dshot_PrepareFrame(m1, DShot_MemoryBufferMotor1);
-		  Dshot_PrepareFrame(m2, DShot_MemoryBufferMotor2);
-		  Dshot_PrepareFrame(m3, DShot_MemoryBufferMotor3);
-		  Dshot_PrepareFrame(m4, DShot_MemoryBufferMotor4);
-	  }
-
-	  if (mpu.state==2){
-		  MPU6000_Process_DMA(&mpu);
-		  mpu.state = 0;
-
-		  /*low-pass filter*/
-//		  IIR_Filter_3D_Update(&acc_filtered, mpu.acc[0], mpu.acc[1], mpu.acc[2], &acc_x, &acc_y, &acc_z);
-		  acc_x = mpu.acc[0];
-		  acc_y = mpu.acc[1];
-		  acc_z = mpu.acc[2];
-		  IIR_Filter_3D_Update(&gyro_filtered, mpu.gyro[0], mpu.gyro[1], mpu.gyro[2], &gyro_p, &gyro_q, &gyro_r);
-
-		  /*Estimate pitch and roll*/
-		  rollHat_acc_rad = atan2f(acc_y, acc_z);
-		  pitchHat_acc_rad = atan2f(-acc_x, sqrtf(acc_y * acc_y + acc_z * acc_z));
-		  float rollDot_rad = (gyro_p * (M_PI / 180.0f) + tanf(pitchHat_acc_rad) * sinf(rollHat_acc_rad) * gyro_q * (M_PI / 180.0f) + tanf(pitchHat_acc_rad) * cosf(rollHat_acc_rad) * gyro_r * (M_PI / 180.0f));
-		  float pitchDot_rad = (cosf(rollHat_acc_rad) * gyro_q * (M_PI / 180.0f) - sinf(rollHat_acc_rad) * gyro_r * (M_PI / 180.0f));
-
-		  //Complementary filter
-		  roll_rad = (1.0f - COMP_ALPHA) * rollHat_acc_rad + COMP_ALPHA * (roll_rad + rollDot_rad * dt );
-		  pitch_rad = (1.0f - COMP_ALPHA) * pitchHat_acc_rad + COMP_ALPHA * (pitch_rad + pitchDot_rad * dt );
-		  float yawDot = gyro_r;
-
-		  rollDot = rollDot_rad * (180.0f / M_PI);
-		  pitchDot = pitchDot_rad * (180.0f / M_PI);
-		  roll = roll_rad * (180.0f / M_PI);
-		  pitch = pitch_rad * (180.0f / M_PI);
-		  yaw = yaw + yawDot * dt;
-		  while (yaw>= 360.0f) yaw -= 360.0f;
-		  while (yaw < 0.0f)         yaw += 360.0f;
-
-
-		  global_counter++;
-		  PID_outer_loop_activation_flag = (global_counter % 4 == 0);
-
-		  float roll_target = (ScaledControllerOutput[CH_ROLL]- 1500.0f) * 0.08f;
-		  float pitch_target = (ScaledControllerOutput[CH_PITCH]- 1500.0f) * -0.08f;
-		  roll_out = PID_Double_Calculation(&PID_Controller_Roll, roll_target, roll, rollDot, dt);
-		  pitch_out = PID_Double_Calculation(&PID_Controller_Pitch, pitch_target, pitch, pitchDot, dt);
-
-		  if (ScaledControllerOutput[CH_YAW] < 1485 || ScaledControllerOutput[CH_YAW] > 1515){
-			  yaw_heading_reference = yaw;
-			  yaw_out = PID_Yaw_Rate_Calculation(&PID_Controller_Yaw_Rate, (ScaledControllerOutput[CH_YAW] - 1500.0f) * 0.08f , yawDot, dt);
 		  }
 		  else{
-			  yaw_out = PID_Yaw_Angle_Calculation(&PID_Controller_Yaw, yaw_heading_reference , yaw, yawDot, dt);
+			  //0 <= m1, m2, m3, m4 <= 1999
+			  Dshot_PrepareFrame(m1, DShot_MemoryBufferMotor1);
+			  Dshot_PrepareFrame(m2, DShot_MemoryBufferMotor2);
+			  Dshot_PrepareFrame(m3, DShot_MemoryBufferMotor3);
+			  Dshot_PrepareFrame(m4, DShot_MemoryBufferMotor4);
 		  }
 
-		  // Clamp PID outputs to safe range
-//		  const float max_correction = 400.0f;  // adjust based on tuning
-//		  roll_out  = constrain(roll_out,  -max_correction, max_correction);
-//		  pitch_out = constrain(pitch_out, -max_correction, max_correction);
-//		  yaw_out   = constrain(yaw_out,   -max_correction, max_correction);
+		  if (mpu.state==2){
+			  MPU6000_Process_DMA(&mpu);
+			  mpu.state = 0;
 
-		  // Motor mix
-		  m1 = 100 + ScaledControllerOutput[CH_THROTTLE] - pitch_out - roll_out + yaw_out;
-		  m2 = 100 + ScaledControllerOutput[CH_THROTTLE] + pitch_out - roll_out - yaw_out;
-		  m3 = 100 + ScaledControllerOutput[CH_THROTTLE] - pitch_out + roll_out - yaw_out;
-		  m4 = 100 + ScaledControllerOutput[CH_THROTTLE] + pitch_out + roll_out + yaw_out;
+			  /*low-pass filter*/
+		//		  IIR_Filter_3D_Update(&acc_filtered, mpu.acc[0], mpu.acc[1], mpu.acc[2], &acc_x, &acc_y, &acc_z);
+			  acc_x = mpu.acc[0];
+			  acc_y = mpu.acc[1];
+			  acc_z = mpu.acc[2];
+			  IIR_Filter_3D_Update(&gyro_filtered, mpu.gyro[0], mpu.gyro[1], mpu.gyro[2], &gyro_p, &gyro_q, &gyro_r);
 
-		  // Clamp final motor values
-		  m1 = constrain(m1, 0, 1999);
-		  m2 = constrain(m2, 0, 1999);
-		  m3 = constrain(m3, 0, 1999);
-		  m4 = constrain(m4, 0, 1999);
+			  /*Estimate pitch and roll*/
+			  rollHat_acc_rad = atan2f(acc_y, acc_z);
+			  pitchHat_acc_rad = atan2f(-acc_x, sqrtf(acc_y * acc_y + acc_z * acc_z));
+			  float rollDot_rad = (gyro_p * (M_PI / 180.0f) + tanf(pitchHat_acc_rad) * sinf(rollHat_acc_rad) * gyro_q * (M_PI / 180.0f) + tanf(pitchHat_acc_rad) * cosf(rollHat_acc_rad) * gyro_r * (M_PI / 180.0f));
+			  float pitchDot_rad = (cosf(rollHat_acc_rad) * gyro_q * (M_PI / 180.0f) - sinf(rollHat_acc_rad) * gyro_r * (M_PI / 180.0f));
 
-		  sprintf(USB_TX_Buffer, "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\r\n",
-		          roll_target, roll, 0.0f,
-		          pitch_target, pitch, 0.0f);
-		  CDC_Transmit_FS((uint8_t*)USB_TX_Buffer, strlen(USB_TX_Buffer));
+			  //Complementary filter
+			  roll_rad = (1.0f - COMP_ALPHA) * rollHat_acc_rad + COMP_ALPHA * (roll_rad + rollDot_rad * dt );
+			  pitch_rad = (1.0f - COMP_ALPHA) * pitchHat_acc_rad + COMP_ALPHA * (pitch_rad + pitchDot_rad * dt );
+			  float yawDot = gyro_r;
 
+			  rollDot = rollDot_rad * (180.0f / M_PI);
+			  pitchDot = pitchDot_rad * (180.0f / M_PI);
+			  roll = roll_rad * (180.0f / M_PI);
+			  pitch = pitch_rad * (180.0f / M_PI);
+			  yaw = yaw + yawDot * dt;
+			  while (yaw>= 360.0f) yaw -= 360.0f;
+			  while (yaw < 0.0f)         yaw += 360.0f;
+
+
+			  global_counter++;
+			  PID_outer_loop_activation_flag = (global_counter % 4 == 0);
+
+			  float roll_target = (ScaledControllerOutput[CH_ROLL]- 1500.0f) * 0.08f;
+			  float pitch_target = (ScaledControllerOutput[CH_PITCH]- 1500.0f) * -0.08f;
+			  roll_out = PID_Double_Calculation(&PID_Controller_Roll, roll_target, roll, rollDot, dt);
+			  pitch_out = PID_Double_Calculation(&PID_Controller_Pitch, pitch_target, pitch, pitchDot, dt);
+
+			  if (ScaledControllerOutput[CH_YAW] < 1485 || ScaledControllerOutput[CH_YAW] > 1515){
+				  yaw_heading_reference = yaw;
+				  yaw_out = PID_Yaw_Rate_Calculation(&PID_Controller_Yaw_Rate, (ScaledControllerOutput[CH_YAW] - 1500.0f) * 0.08f , yawDot, dt);
+			  }
+			  else{
+				  yaw_out = PID_Yaw_Angle_Calculation(&PID_Controller_Yaw, yaw_heading_reference , yaw, yawDot, dt);
+			  }
+
+			  // Clamp PID outputs to safe range
+		//		  const float max_correction = 400.0f;  // adjust based on tuning
+		//		  roll_out  = constrain(roll_out,  -max_correction, max_correction);
+		//		  pitch_out = constrain(pitch_out, -max_correction, max_correction);
+		//		  yaw_out   = constrain(yaw_out,   -max_correction, max_correction);
+
+			  // Motor mix
+			  m1 = 100 + ScaledControllerOutput[CH_THROTTLE] - pitch_out - roll_out + yaw_out;
+			  m2 = 100 + ScaledControllerOutput[CH_THROTTLE] + pitch_out - roll_out - yaw_out;
+			  m3 = 100 + ScaledControllerOutput[CH_THROTTLE] - pitch_out + roll_out - yaw_out;
+			  m4 = 100 + ScaledControllerOutput[CH_THROTTLE] + pitch_out + roll_out + yaw_out;
+
+			  // Clamp final motor values
+			  m1 = constrain(m1, 0, 1999);
+			  m2 = constrain(m2, 0, 1999);
+			  m3 = constrain(m3, 0, 1999);
+			  m4 = constrain(m4, 0, 1999);
+
+
+			  blackbox_packet[blackbox_packet_index].battery_voltage = battery_voltage;
+			  blackbox_packet[blackbox_packet_index].pitch = pitch;
+			  blackbox_packet[blackbox_packet_index].pitch_target = pitch_target;
+			  blackbox_packet[blackbox_packet_index].roll = roll;
+			  blackbox_packet[blackbox_packet_index].roll_target = roll_target;
+			  blackbox_packet[blackbox_packet_index].timestamp = HAL_GetTick();
+			  blackbox_packet[blackbox_packet_index].yaw = yaw;
+			  blackbox_packet[blackbox_packet_index].yaw_target = yaw_target;
+
+			  blackbox_packet_index++;
+			  if (blackbox_packet_index >= 8) {
+				  blackbox_packet_ready_flag = true;
+				  blackbox_packet_index = 0;
+			  }
+//				  sprintf(USB_TX_Buffer, "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\r\n",
+//						  roll_target, roll, 0.0f,
+//						  pitch_target, pitch, 0.0f);
+//				  CDC_Transmit_FS((uint8_t*)USB_TX_Buffer, strlen(USB_TX_Buffer));
+			  }
+		  if (blackbox_packet_ready_flag && page_number < 8192){
+//			  flash_write_done_flag = false;
+			  blackbox_packet_ready_flag = false;
+			  W25Q_PageProgram(BLACKBOX_START_ADDR + page_number*256, (uint8_t *)blackbox_packet);
+			    W25Q_Read(BLACKBOX_START_ADDR + page_number*256, 256, flash_buffer_rx);
+			  page_number ++;
+
+		  }
+
+
+	  }
+	  else if (drone_system_state == SYSTEM_STATE_DUMP_DATA_MODE) {
+	      for (int i = 0; i < 8192; i++) {
+	          uint32_t addr = BLACKBOX_START_ADDR + i*256;
+	          W25Q_Read(addr, 256, flash_buffer_rx);
+	          // Check if this page is all 0xFF (erased)
+	          bool empty = true;
+	          for (int j = 0; j < 256; j++) {
+	              if (flash_buffer_rx[j] != 0xFF) {
+	                  empty = false;
+	                  break;
+	              }
+	          }
+
+	          if (empty) {
+	              break; // stop printing, reached unwritten region
+	          }
+
+	          CDC_Transmit_FS(flash_buffer_rx, sizeof(flash_buffer_rx));
+	          while (CDC_Transmit_FS(flash_buffer_rx, 256) == USBD_BUSY);
+	      }
+	      while (1);
 	  }
     /* USER CODE END WHILE */
 

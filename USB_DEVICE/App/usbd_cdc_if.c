@@ -22,7 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include "main.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +31,10 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+#define CMD_BUFFER_SIZE 64
 
+static char cmd_buffer[CMD_BUFFER_SIZE];
+static uint8_t cmd_index = 0;
 /* USER CODE END PV */
 
 /** @addtogroup STM32_USB_OTG_DEVICE_LIBRARY
@@ -261,9 +264,42 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
-  USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
-  USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-  return (USBD_OK);
+    for (uint32_t i = 0; i < *Len; i++) {
+        char c = (char)Buf[i];
+
+        // End of command
+        if (c == '\r' || c == '\n') {
+            if (cmd_index > 0) {
+                cmd_buffer[cmd_index] = '\0'; // Null-terminate
+
+                // Process command
+                if (strcmp(cmd_buffer, "FLY") == 0) {
+                    drone_system_state = SYSTEM_STATE_FLY_MODE;
+                    CDC_Transmit_FS((uint8_t*)"MODE: FLY\r\n", 11);
+                }
+                else if (strcmp(cmd_buffer, "DUMP") == 0) {
+                    drone_system_state = SYSTEM_STATE_DUMP_DATA_MODE;
+                    CDC_Transmit_FS((uint8_t*)"MODE: DATA DUMP\r\n", 17);
+                }
+                else {
+                    CDC_Transmit_FS((uint8_t*)"Unknown command\r\n", 17);
+                }
+
+                cmd_index = 0; // Reset for next command
+            }
+        } else {
+            // Append character to buffer
+            if (cmd_index < CMD_BUFFER_SIZE - 1) {
+                cmd_buffer[cmd_index++] = c;
+            }
+        }
+    }
+
+    // Re-enable USB receive
+    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, Buf);
+    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+
+    return USBD_OK;
   /* USER CODE END 6 */
 }
 
