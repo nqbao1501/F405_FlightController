@@ -1,0 +1,10 @@
+../Core/Src/CRsF.c:47:6:Check_valid_Frame	24	static
+../Core/Src/CRsF.c:64:6:CrsF_Encode	24	static
+../Core/Src/CRsF.c:76:6:Payload_CRsF	16	static
+../Core/Src/CRsF.c:96:10:getCRC8	32	static
+../Core/Src/CRsF.c:129:6:Check_Status	16	static
+../Core/Src/CRsF.c:177:7:map_float	32	static
+../Core/Src/CRsF.c:180:6:CRsF_Process	24	static
+../Core/Src/CRsF.c:233:6:CRsF_Pack_Attitude	40	static
+../Core/Src/CRsF.c:250:6:CRsF_Pack_Battery	40	static
+../Core/Src/CRsF.c:268:6:CRsF_Pack_FlightMode	32	static
