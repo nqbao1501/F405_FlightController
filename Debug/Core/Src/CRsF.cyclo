@@ -1,7 +1,0 @@
-../Core/Src/CRsF.c:47:6:Check_valid_Frame	5
-../Core/Src/CRsF.c:64:6:CrsF_Encode	3
-../Core/Src/CRsF.c:76:6:Payload_CRsF	1
-../Core/Src/CRsF.c:96:10:getCRC8	4
-../Core/Src/CRsF.c:129:6:Check_Status	11
-../Core/Src/CRsF.c:177:7:map_float	1
-../Core/Src/CRsF.c:180:6:CRsF_Process	7
