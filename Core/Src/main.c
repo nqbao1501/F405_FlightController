@@ -37,9 +37,12 @@
 #include <math.h>
 #include "stm32f4xx.h"
 #include <stdbool.h>
+#include <timer_logging.h>
 #include "usbd_cdc_if.h"
 #include "w25q256.h"
 #include "blackbox.h"
+#include "timer_logging.h"
+#include "ekf.h"
 
 /* USER CODE END Includes */
 
@@ -50,6 +53,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define EKF_MODE 	0
+#define COMP_MODE	1
+#define SENSOR_FUSION_MODE	EKF_MODE
+
 #define PID_KP_PITCH_INNER		0.8f
 #define PID_KD_PITCH_INNER		0.005f
 #define PID_KI_PITCH_INNER		0.2f
@@ -89,6 +96,7 @@ extern DMA_HandleTypeDef hdma_usart6_rx;
 
 
 float dt = 0.001f;
+float dt_ekf;
 float acc_x = 0.0f;
 float acc_y = 0.0f;
 float acc_z = 0.0f;
@@ -96,12 +104,21 @@ float gyro_p = 0.0f;
 float gyro_q = 0.0f;
 float gyro_r = 0.0f;
 
+float gyro_p_ekf = 0.0f;
+float gyro_q_ekf = 0.0f;
+float gyro_r_ekf = 0.0f;
+
 float pitch_target = 0.0f;
 float roll_target = 0.0f;
 float yaw_target = 0.0f;
 
 float pitch,roll,yaw,yawHat_acc_rad;
 float roll_rad, pitch_rad, yaw_rad;
+float roll_rad_ekf;
+float pitch_rad_ekf;
+float pitch_ekf;
+float roll_ekf;
+
 Double_PID_Controller PID_Controller_Roll, PID_Controller_Pitch;
 PID_Controller PID_Controller_Yaw, PID_Controller_Yaw_Rate;
 uint16_t throttle = 1000;
@@ -110,8 +127,8 @@ MPU6000 mpu;
 float rollHat_acc_rad;
 float pitchHat_acc_rad;
 IIR_Filter_3D acc_filtered;
-IIR_Filter_3D gyro_filtered;
-
+IIR_Filter_3D gyro_filtered_ekf;
+IIR_Filter_3D gyro_filtered_comp;
 uint32_t DShot_MemoryBufferMotor1[MEM_BUFFER_LENGTH] = {0};
 uint32_t DShot_DMABufferMotor1[DMA_BUFFER_LENGTH] = {0};
 uint32_t DShot_MemoryBufferMotor2[MEM_BUFFER_LENGTH] = {0};
@@ -166,6 +183,9 @@ uint16_t page_number = 0;
 float battery_voltage;
 uint16_t battery_voltage_raw;
 bool adc_battery_done_flag = true;
+
+/*Logging variables*/
+volatile uint32_t timer_overflow = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -184,6 +204,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         	adc_battery_done_flag = false;
         	HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&battery_voltage_raw, 1);
         }
+    }
+    if (htim->Instance == TIM4){
+    	timer_overflow++;
     }
 }
 
@@ -206,13 +229,13 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
         mpu.spi_transfer_done = true;
     }
 }
-void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
-{
-    if (hspi->Instance == SPI3) {
-        csHigh();
-        flash_write_done_flag = true;
-    }
-}
+//void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
+//{
+//    if (hspi->Instance == SPI3) {
+//        csHigh();
+//        flash_write_done_flag = true;
+//    }
+//}
 
 //Hàm call back gửi DSHOT cho động cơ
 void HAL_TIM_PWM_PulseFinishedHalfCpltCallback(TIM_HandleTypeDef *htim)
@@ -306,6 +329,10 @@ void CRSF_IdleHandler(void) {
 }
 float rollDot;
 float pitchDot;
+uint32_t t;
+uint32_t t_prev;
+
+EKF_t ekf;
 /* USER CODE END 0 */
 
 /**
@@ -322,7 +349,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+	HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -346,9 +373,12 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_SPI3_Init();
   MX_ADC1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   //IIR_Filter_3D_Init(&acc_filtered, IIR_ACC_ALPHA, IIR_ACC_BETA);
-  IIR_Filter_3D_Init(&gyro_filtered, IIR_GYR_ALPHA, IIR_GYR_BETA);
+  IIR_Filter_3D_Init(&gyro_filtered_comp, IIR_GYR_ALPHA, IIR_GYR_BETA);
+  IIR_Filter_3D_Init(&gyro_filtered_ekf, IIR_GYR_ALPHA, IIR_GYR_BETA);
+
   MPU6000_Init(&mpu, &hspi1);
 
   mpu.state=0;
@@ -389,22 +419,25 @@ int main(void)
 
   HAL_GPIO_WritePin(FLASH_CS_PORT, FLASH_CS_PIN, GPIO_PIN_SET);
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)&battery_voltage_raw, 1);
-  W25Q_Reset();
-  flash_write_done_flag = false;
-
-  Blackbox_EraseAll();
-  W25Q_Read(BLACKBOX_START_ADDR, 256, flash_buffer_rx);
-  for (int i = blackbox_packet_index; i < 8; i++) {
-      blackbox_packet[i].timestamp = 0;
-      blackbox_packet[i].battery_voltage = 0;
-      blackbox_packet[i].roll_target = 0;
-      blackbox_packet[i].pitch_target = 0;
-      blackbox_packet[i].yaw_target = 0;
-      blackbox_packet[i].roll = 0;
-      blackbox_packet[i].pitch = 0;
-      blackbox_packet[i].yaw = 0;
-  }
-  id = W25Q_ReadID();
+//  W25Q_Reset();
+//  flash_write_done_flag = false;
+//
+//  Blackbox_EraseAll();
+//  W25Q_Read(BLACKBOX_START_ADDR, 256, flash_buffer_rx);
+//  for (int i = blackbox_packet_index; i < 8; i++) {
+//      blackbox_packet[i].timestamp = 0;
+//      blackbox_packet[i].battery_voltage = 0;
+//      blackbox_packet[i].roll_target = 0;
+//      blackbox_packet[i].pitch_target = 0;
+//      blackbox_packet[i].yaw_target = 0;
+//      blackbox_packet[i].roll = 0;
+//      blackbox_packet[i].pitch = 0;
+//      blackbox_packet[i].yaw = 0;
+//  }
+//  id = W25Q_ReadID();
+  HAL_TIM_Base_Start_IT(&htim4);
+  EKF_Init(&ekf, mpu.gyro_offset[0], mpu.gyro_offset[1]);
+  t_prev = micros();
 
   /* USER CODE END 2 */
 
@@ -431,20 +464,52 @@ int main(void)
 		  if (mpu.state==2){
 			  MPU6000_Process_DMA(&mpu);
 			  mpu.state = 0;
-
-			  /*low-pass filter*/
-		//		  IIR_Filter_3D_Update(&acc_filtered, mpu.acc[0], mpu.acc[1], mpu.acc[2], &acc_x, &acc_y, &acc_z);
+			  #if SENSOR_FUSION_MODE ==  EKF_MODE
+			  //EKF filter
+			  // IIR_Filter_3D_Update(&acc_filtered, mpu.acc[0], mpu.acc[1], mpu.acc[2], &acc_x, &acc_y, &acc_z);
 			  acc_x = mpu.acc[0];
 			  acc_y = mpu.acc[1];
 			  acc_z = mpu.acc[2];
-			  IIR_Filter_3D_Update(&gyro_filtered, mpu.gyro[0], mpu.gyro[1], mpu.gyro[2], &gyro_p, &gyro_q, &gyro_r);
+			  mpu.gyro[0] += mpu.gyro_offset[0];
+			  mpu.gyro[1] += mpu.gyro_offset[1];
 
+
+			  IIR_Filter_3D_Update(&gyro_filtered_ekf, mpu.gyro[0], mpu.gyro[1], mpu.gyro[2], &gyro_p, &gyro_q, &gyro_r);
+
+			  float gyro_rad_s[3];
+			  gyro_rad_s[0] = gyro_p * M_PI / 180.0f;
+			  gyro_rad_s[1] = gyro_q * M_PI / 180.0f;
+			  gyro_rad_s[2] = gyro_r * M_PI / 180.0f;
+
+			  float acc_m_s2[3];
+			  acc_m_s2[0] = acc_x * 9.81f;
+			  acc_m_s2[1] = acc_y * 9.81f;
+			  acc_m_s2[2] = acc_z * 9.81f;
+			  float yawDot = gyro_r;
+			  t = micros();
+			  dt = (t - t_prev) / 1000000.0f;
+
+			  EKF_Predict(&ekf, gyro_rad_s, dt);
+			  EKF_UpdateAccel(&ekf, acc_m_s2);
+
+			  t_prev = t;
+			  quad_to_euler(&ekf, &roll_rad_ekf, &pitch_rad);
+
+			  roll = roll_rad_ekf * (180.0f / M_PI);
+			  pitch = pitch_rad * (180.0f / M_PI);
+			  yaw = yaw + yawDot * dt;
+			  while (yaw>= 360.0f) yaw -= 360.0f;
+			  while (yaw < 0.0f)         yaw += 360.0f;
+
+			  #else
+			  IIR_Filter_3D_Update(&gyro_filtered_comp, mpu.gyro[0], mpu.gyro[1], mpu.gyro[2], &gyro_p, &gyro_q, &gyro_r);
 			  /*Estimate pitch and roll*/
 			  rollHat_acc_rad = atan2f(acc_y, acc_z);
 			  pitchHat_acc_rad = atan2f(-acc_x, sqrtf(acc_y * acc_y + acc_z * acc_z));
 			  float rollDot_rad = (gyro_p * (M_PI / 180.0f) + tanf(pitchHat_acc_rad) * sinf(rollHat_acc_rad) * gyro_q * (M_PI / 180.0f) + tanf(pitchHat_acc_rad) * cosf(rollHat_acc_rad) * gyro_r * (M_PI / 180.0f));
 			  float pitchDot_rad = (cosf(rollHat_acc_rad) * gyro_q * (M_PI / 180.0f) - sinf(rollHat_acc_rad) * gyro_r * (M_PI / 180.0f));
-
+			  t = micros();
+			  dt = (t - t_prev) / 1000000.0f;
 			  //Complementary filter
 			  roll_rad = (1.0f - COMP_ALPHA) * rollHat_acc_rad + COMP_ALPHA * (roll_rad + rollDot_rad * dt );
 			  pitch_rad = (1.0f - COMP_ALPHA) * pitchHat_acc_rad + COMP_ALPHA * (pitch_rad + pitchDot_rad * dt );
@@ -457,6 +522,7 @@ int main(void)
 			  yaw = yaw + yawDot * dt;
 			  while (yaw>= 360.0f) yaw -= 360.0f;
 			  while (yaw < 0.0f)         yaw += 360.0f;
+			  #endif
 
 
 			  global_counter++;
@@ -493,59 +559,65 @@ int main(void)
 			  m3 = constrain(m3, 0, 1999);
 			  m4 = constrain(m4, 0, 1999);
 
-
-			  blackbox_packet[blackbox_packet_index].battery_voltage = battery_voltage;
-			  blackbox_packet[blackbox_packet_index].pitch = pitch;
-			  blackbox_packet[blackbox_packet_index].pitch_target = pitch_target;
-			  blackbox_packet[blackbox_packet_index].roll = roll;
-			  blackbox_packet[blackbox_packet_index].roll_target = roll_target;
-			  blackbox_packet[blackbox_packet_index].timestamp = HAL_GetTick();
-			  blackbox_packet[blackbox_packet_index].yaw = yaw;
-			  blackbox_packet[blackbox_packet_index].yaw_target = yaw_target;
-
-			  blackbox_packet_index++;
-			  if (blackbox_packet_index >= 8) {
-				  blackbox_packet_ready_flag = true;
-				  blackbox_packet_index = 0;
-			  }
-//				  sprintf(USB_TX_Buffer, "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\r\n",
-//						  roll_target, roll, 0.0f,
-//						  pitch_target, pitch, 0.0f);
+//			  blackbox_packet[blackbox_packet_index].battery_voltage = battery_voltage;
+//			  blackbox_packet[blackbox_packet_index].pitch = pitch;
+//			  blackbox_packet[blackbox_packet_index].pitch_target = pitch_target;
+//			  blackbox_packet[blackbox_packet_index].roll = roll;
+//			  blackbox_packet[blackbox_packet_index].roll_target = roll_target;
+//			  blackbox_packet[blackbox_packet_index].timestamp = HAL_GetTick();
+//			  blackbox_packet[blackbox_packet_index].yaw = yaw;
+//			  blackbox_packet[blackbox_packet_index].yaw_target = yaw_target;
+//
+//			  blackbox_packet_index++;
+//			  if (blackbox_packet_index >= 8) {
+//				  blackbox_packet_ready_flag = true;
+//				  blackbox_packet_index = 0;
+//			  }
+//			  t = micros();
+//			  static uint32_t log_div;
+//			  if (++log_div >= 20) {
+//			      log_div = 0;
+//				  sprintf(USB_TX_Buffer,"%.3f, %.3f, %.3f, %.3f\r\n",
+//						  roll_ekf,
+//						  roll,
+//						  pitch_ekf,
+//						  pitch
+//						  );
 //				  CDC_Transmit_FS((uint8_t*)USB_TX_Buffer, strlen(USB_TX_Buffer));
-			  }
-		  if (blackbox_packet_ready_flag && page_number < 8192){
-//			  flash_write_done_flag = false;
-			  blackbox_packet_ready_flag = false;
-			  W25Q_PageProgram(BLACKBOX_START_ADDR + page_number*256, (uint8_t *)blackbox_packet);
-			    W25Q_Read(BLACKBOX_START_ADDR + page_number*256, 256, flash_buffer_rx);
-			  page_number ++;
+//			  }
+
 
 		  }
-
-
+//		  if (blackbox_packet_ready_flag && page_number < 8192){
+//	//			  flash_write_done_flag = false;
+//			  blackbox_packet_ready_flag = false;
+//			  W25Q_PageProgram(BLACKBOX_START_ADDR + page_number*256, (uint8_t *)blackbox_packet);
+//				W25Q_Read(BLACKBOX_START_ADDR + page_number*256, 256, flash_buffer_rx);
+//			  page_number ++;
+//		  }
 	  }
-	  else if (drone_system_state == SYSTEM_STATE_DUMP_DATA_MODE) {
-	      for (int i = 0; i < 8192; i++) {
-	          uint32_t addr = BLACKBOX_START_ADDR + i*256;
-	          W25Q_Read(addr, 256, flash_buffer_rx);
-	          // Check if this page is all 0xFF (erased)
-	          bool empty = true;
-	          for (int j = 0; j < 256; j++) {
-	              if (flash_buffer_rx[j] != 0xFF) {
-	                  empty = false;
-	                  break;
-	              }
-	          }
-
-	          if (empty) {
-	              break; // stop printing, reached unwritten region
-	          }
-
-	          CDC_Transmit_FS(flash_buffer_rx, sizeof(flash_buffer_rx));
-	          while (CDC_Transmit_FS(flash_buffer_rx, 256) == USBD_BUSY);
-	      }
-	      while (1);
-	  }
+//	  else if (drone_system_state == SYSTEM_STATE_DUMP_DATA_MODE) {
+//	      for (int i = 0; i < 8192; i++) {
+//	          uint32_t addr = BLACKBOX_START_ADDR + i*256;
+//	          W25Q_Read(addr, 256, flash_buffer_rx);
+//	          // Check if this page is all 0xFF (erased)
+//	          bool empty = true;
+//	          for (int j = 0; j < 256; j++) {
+//	              if (flash_buffer_rx[j] != 0xFF) {
+//	                  empty = false;
+//	                  break;
+//	              }
+//	          }
+//
+//	          if (empty) {
+//	              break; // stop printing, reached unwritten region
+//	          }
+//
+//	          CDC_Transmit_FS(flash_buffer_rx, sizeof(flash_buffer_rx));
+//	          while (CDC_Transmit_FS(flash_buffer_rx, 256) == USBD_BUSY);
+//	      }
+//	      while (1);
+//	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

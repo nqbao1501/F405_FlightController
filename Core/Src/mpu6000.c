@@ -151,7 +151,7 @@ void MPU6000_Process(MPU6000 *dev, uint8_t* spi_rx_buffer) {
 }
 
 void MPU6000_Calibrate(MPU6000 *dev) {
-    const uint16_t samples = 1000;
+    const uint16_t samples = 3000;
     float acc_sum[3] = {0}, gyro_sum[3] = {0};
 
     dev->calibrated = false;

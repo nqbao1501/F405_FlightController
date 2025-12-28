@@ -39,7 +39,8 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h \
  ../USB_DEVICE/Target/usbd_conf.h ../Core/Inc/gpio.h \
  ../Core/Inc/mpu6000.h ../Core/Inc/filter.h ../Core/Inc/pid.h \
- ../Core/Inc/dshot.h ../Core/Inc/CRsF.h ../USB_DEVICE/App/usbd_cdc_if.h \
+ ../Core/Inc/dshot.h ../Core/Inc/CRsF.h ../Core/Inc/timer_logging.h \
+ ../USB_DEVICE/App/usbd_cdc_if.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc/usbd_cdc.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h \
@@ -48,7 +49,7 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
  ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ctlreq.h \
  ../Core/Inc/w25q256.h ../Core/Inc/blackbox.h \
  ../Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f405xx.h \
- ../Core/Inc/w25q256.h
+ ../Core/Inc/w25q256.h ../Core/Inc/ekf.h
 ../Core/Inc/main.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
 ../Core/Inc/stm32f4xx_hal_conf.h:
@@ -100,6 +101,7 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/pid.h:
 ../Core/Inc/dshot.h:
 ../Core/Inc/CRsF.h:
+../Core/Inc/timer_logging.h:
 ../USB_DEVICE/App/usbd_cdc_if.h:
 ../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc/usbd_cdc.h:
 ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h:
@@ -111,3 +113,4 @@ Core/Src/main.o: ../Core/Src/main.c ../Core/Inc/main.h \
 ../Core/Inc/blackbox.h:
 ../Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f405xx.h:
 ../Core/Inc/w25q256.h:
+../Core/Inc/ekf.h:
