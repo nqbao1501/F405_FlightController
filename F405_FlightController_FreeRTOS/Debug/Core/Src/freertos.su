@@ -1,0 +1,7 @@
+../Core/Src/freertos.c:109:21:constrain	24	static
+../Core/Src/freertos.c:152:6:vApplicationGetIdleTaskMemory	24	static
+../Core/Src/freertos.c:166:6:MX_FREERTOS_Init	136	static
+../Core/Src/freertos.c:222:6:sensor_fusion_func	40	static
+../Core/Src/freertos.c:314:6:control_func	16	static
+../Core/Src/freertos.c:373:6:rc_input_func	16	static
+../Core/Src/freertos.c:395:6:telemetry_func	72	static
