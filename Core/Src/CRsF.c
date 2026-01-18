@@ -215,10 +215,10 @@ void CRsF_Process(CrsF_Frame*frame){
 //			CRsFChannel[CH_YAW],
 //			CRsFChannel[CH_ARM]);
 //    CDC_Transmit_FS((uint8_t*)logbuf, strlen(logbuf));
-    ScaledControllerOutput[CH_THROTTLE] = map_float(CRsFChannel[CH_THROTTLE], 183, 1811, 0, 1600);
-    ScaledControllerOutput[CH_ROLL] = map_float(CRsFChannel[CH_ROLL], 175, 1805, 1000, 2000);
+    ScaledControllerOutput[CH_THROTTLE] = map_float(CRsFChannel[CH_THROTTLE], 174, 1811, 0, 1600);
+    ScaledControllerOutput[CH_ROLL] = map_float(CRsFChannel[CH_ROLL], 174, 1811, 1000, 2000);
     ScaledControllerOutput[CH_PITCH] = map_float(CRsFChannel[CH_PITCH], 174, 1811, 1000, 2000);
-    ScaledControllerOutput[CH_YAW] = map_float(CRsFChannel[CH_YAW], 174, 1801, 1000, 2000);
+    ScaledControllerOutput[CH_YAW] = map_float(CRsFChannel[CH_YAW], 174, 1811, 1000, 2000);
     ScaledControllerOutput[CH_ARM] = CRsFChannel[CH_ARM];
 
 

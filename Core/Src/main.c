@@ -57,28 +57,28 @@
 #define COMP_MODE	1
 #define SENSOR_FUSION_MODE	EKF_MODE
 
-#define PID_KP_PITCH_INNER		0.8f
-#define PID_KD_PITCH_INNER		0.005f
-#define PID_KI_PITCH_INNER		0.2f
+#define PID_KP_PITCH_INNER		1.2f
+#define PID_KD_PITCH_INNER		0.4f
+#define PID_KI_PITCH_INNER		1.0f
 
 #define PID_KP_PITCH_OUTER		3.0f
-#define PID_KD_PITCH_OUTER		0.0f
-#define PID_KI_PITCH_OUTER		0.0f
+#define PID_KD_PITCH_OUTER		1.0f
+#define PID_KI_PITCH_OUTER		0.8f
 
-#define PID_KP_ROLL_INNER		0.8f
-#define PID_KD_ROLL_INNER		0.005f
-#define PID_KI_ROLL_INNER		0.2f
+#define PID_KP_ROLL_INNER		1.2f
+#define PID_KD_ROLL_INNER		0.4f
+#define PID_KI_ROLL_INNER		1.0f
 
-#define PID_KP_ROLL_OUTER		3.0f
-#define PID_KD_ROLL_OUTER		0.0f
-#define PID_KI_ROLL_OUTER		0.0f
+#define PID_KP_ROLL_OUTER		2.0f
+#define PID_KD_ROLL_OUTER		1.0f
+#define PID_KI_ROLL_OUTER		0.8f
 
 
-#define PID_KP_YAW				3.5f
+#define PID_KP_YAW				3.0f
 #define PID_KD_YAW				0.0f
 #define PID_KI_YAW				0.0f
 
-#define PID_KP_YAW_RATE			3.5f
+#define PID_KP_YAW_RATE			3.0f
 #define PID_KD_YAW_RATE			0.0f
 #define PID_KI_YAW_RATE			0.0f
 /* USER CODE END PD */
@@ -349,7 +349,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-	HAL_Init();
+  HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -451,6 +451,13 @@ int main(void)
 			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor2);
 			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor3);
 			  Dshot_PrepareFrame(0, DShot_MemoryBufferMotor4);
+			  PID_Controller_Pitch.inner_loop.error_sum = 0;
+			  PID_Controller_Pitch.outer_loop.error_sum = 0;
+			  PID_Controller_Roll.inner_loop.error_sum = 0;
+			  PID_Controller_Roll.outer_loop.error_sum = 0;
+			  PID_Controller_Yaw_Rate.error_sum = 0;
+			  PID_Controller_Yaw.error_sum = 0;
+
 
 		  }
 		  else{
@@ -525,8 +532,9 @@ int main(void)
 			  #endif
 
 
-			  global_counter++;
-			  PID_outer_loop_activation_flag = (global_counter % 4 == 0);
+//			  global_counter++;
+////			  PID_outer_loop_activation_flag = (global_counter % 4 == 0);
+			  PID_outer_loop_activation_flag = true;
 
 			  float roll_target = (ScaledControllerOutput[CH_ROLL]- 1500.0f) * 0.08f;
 			  float pitch_target = (ScaledControllerOutput[CH_PITCH]- 1500.0f) * -0.08f;
@@ -548,10 +556,10 @@ int main(void)
 		//		  yaw_out   = constrain(yaw_out,   -max_correction, max_correction);
 
 			  // Motor mix
-			  m1 = 100 + ScaledControllerOutput[CH_THROTTLE] - pitch_out - roll_out + yaw_out;
-			  m2 = 100 + ScaledControllerOutput[CH_THROTTLE] + pitch_out - roll_out - yaw_out;
-			  m3 = 100 + ScaledControllerOutput[CH_THROTTLE] - pitch_out + roll_out - yaw_out;
-			  m4 = 100 + ScaledControllerOutput[CH_THROTTLE] + pitch_out + roll_out + yaw_out;
+			  m1 = 50 + ScaledControllerOutput[CH_THROTTLE] - pitch_out - roll_out + yaw_out;
+			  m2 = 50 + ScaledControllerOutput[CH_THROTTLE] + pitch_out - roll_out - yaw_out;
+			  m3 = 50 + ScaledControllerOutput[CH_THROTTLE] - pitch_out + roll_out - yaw_out;
+			  m4 = 50 + ScaledControllerOutput[CH_THROTTLE] + pitch_out + roll_out + yaw_out;
 
 			  // Clamp final motor values
 			  m1 = constrain(m1, 0, 1999);
